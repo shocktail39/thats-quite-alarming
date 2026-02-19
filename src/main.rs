@@ -1,5 +1,6 @@
 pub mod alarm;
 pub mod alarm_heap;
+pub mod event_listener;
 pub mod config;
 pub mod stoat_api;
 
@@ -10,7 +11,7 @@ use chrono::Utc;
 
 fn main() {
     // basic testing to make sure the heap pops in the correct order
-    let now_alarm = Alarm {
+    /*let now_alarm = Alarm {
         when: Utc::now().naive_utc(),
         what: r#"right \now""#.into(),
         message_id: "a".into(),
@@ -36,5 +37,6 @@ fn main() {
     println!("\n");
     println!("{}", stoat_api::into_post_message(alarm_heap.pop().unwrap(), config::BOT_TOKEN));
     println!("\n");
-    println!("{}", stoat_api::into_post_message(alarm_heap.pop().unwrap(), config::BOT_TOKEN));
+    println!("{}", stoat_api::into_post_message(alarm_heap.pop().unwrap(), config::BOT_TOKEN));*/
+    event_listener::learn_how_to_websocket();
 }
