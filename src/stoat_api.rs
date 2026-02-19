@@ -10,7 +10,7 @@ pub fn into_post_message(alarm: Alarm, bot_token: &str) -> String {
     let reply_to = sanitize(alarm.message_id);
 
     let body = format!(r#"{{"content":"{}","replies":[{{"id":"{}","mention":true}}]}}"#, message, reply_to);
-    let request = format!("POST https://stoat.chat/api/channels/{}/messages HTTP/1.0\r\nHost: stoat.chat\r\nContent-Length: {}\r\nX-Bot-Token: {}\r\n\r\n{}", channel, body.len(), bot_token, body);
+    let request = format!("POST /api/channels/{}/messages HTTP/1.0\r\nHost: stoat.chat\r\nContent-Length: {}\r\nX-Bot-Token: {}\r\n\r\n{}", channel, body.len(), bot_token, body);
 
     request
 }
