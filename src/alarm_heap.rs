@@ -3,15 +3,10 @@ use std::collections::BinaryHeap;
 
 use crate::alarm::Alarm;
 
+#[derive(Default)]
 pub struct AlarmHeap (
     BinaryHeap<Reverse<Alarm>>
 );
-
-impl Default for AlarmHeap {
-    fn default() -> Self {
-        AlarmHeap(BinaryHeap::default())
-    }
-}
 
 impl AlarmHeap {
     pub fn push(&mut self, alarm: Alarm) {
@@ -19,16 +14,10 @@ impl AlarmHeap {
     }
 
     pub fn pop(&mut self) -> Option<Alarm> {
-        match self.0.pop() {
-            Some(Reverse(alarm)) => Some(alarm),
-            None => None
-        }
+        self.0.pop().map(|Reverse(alarm)| alarm)
     }
 
     pub fn peek(&self) -> Option<&Alarm> {
-        match self.0.peek() {
-            Some(Reverse(alarm)) => Some(alarm),
-            None => None
-        }
+        self.0.peek().map(|Reverse(alarm)| alarm)
     }
 }

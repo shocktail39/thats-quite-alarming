@@ -10,7 +10,7 @@ pub struct Alarm {
 
 impl PartialOrd for Alarm {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        NaiveDateTime::partial_cmp(&self.when, &other.when)
+        Some(self.cmp(other))
     }
 }
 
