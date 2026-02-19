@@ -1,1 +1,1 @@
-const BOT_TOKEN: &str = "put your secret token here";
+pub const BOT_TOKEN: &str = "put your secret token here";
