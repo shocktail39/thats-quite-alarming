@@ -1,14 +1,14 @@
 use std::net::TcpStream;
 use tungstenite::ClientRequestBuilder;
-use tungstenite::Message;
 
 pub fn learn_how_to_websocket() {
-    const DOMAIN: &str = "events.stoat.chat";
+    const SOCKET: (&str, u16) = ("events.stoat.chat", 443);
     const EVENT_ENDPOINT: &str = "wss://events.stoat.chat/";
+    const TEST_MESSAGE: &[u8] = br#"{"type":"Authenticate","token":"ItWouldBeCrazyIfThisTokenExists"}"#;
     let request = ClientRequestBuilder::new(EVENT_ENDPOINT.parse().unwrap());
-    let stream = TcpStream::connect((DOMAIN, 443)).unwrap();
-    let (mut websocket_client, response) = tungstenite::client_tls(request, stream).unwrap();
-    websocket_client.write(Message::Text(r#"{"type":"Authenticate","token":"ItWouldBeCrazyIfThisTokenExists"}"#.into()));
-    websocket_client.flush();
-    println!("{:?}", websocket_client.read());
+    let stream = TcpStream::connect(SOCKET).unwrap();
+    let (mut websocket_client, _response) = tungstenite::client_tls(request, stream).unwrap();
+    websocket_client.write(TEST_MESSAGE.into()).unwrap();
+    websocket_client.flush().unwrap();
+    println!("{:?}", websocket_client.read().unwrap());
 }
