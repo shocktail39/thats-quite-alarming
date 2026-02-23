@@ -1,7 +1,8 @@
 pub mod alarm;
 pub mod alarm_heap;
-pub mod event_listener;
 pub mod config;
+pub mod event_listener;
+pub mod json;
 pub mod stoat_api;
 
 use crate::alarm::Alarm;
