@@ -378,22 +378,81 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
     }
 }
 
+fn parse_array(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+    let mut current_index = start_index + 1;
+    if !check_inbounds(string, current_index) {
+        return Err(Error::NotClosed);
+    }
+
+    current_index = skip_whitespace(string, current_index);
+
+    if !check_inbounds(string, current_index) {
+        return Err(Error::NotClosed);
+    }
+    if string[current_index] == b']' {
+        return Ok((Value::Array(vec![]), current_index + 1));
+    }
+
+    let mut result = vec![];
+    match parse_value(string, current_index) {
+        Ok((value, end_index)) => {
+            result.push(value);
+            current_index = end_index;
+        },
+        e => {
+            return e;
+        }
+    }
+
+    loop {
+        if !check_inbounds(string, current_index) {
+            return Err(Error::NotClosed);
+        }
+        match string[current_index] {
+            b']' => {
+                return Ok((Value::Array(result), current_index + 1));
+            },
+            b',' => {
+                match parse_value(string, current_index + 1) {
+                    Ok((value, end_index)) => {
+                        result.push(value);
+                        current_index = end_index;
+                    },
+                    e => {
+                        return e;
+                    }
+                }
+            },
+            _ => {
+                return Err(Error::Syntax);
+            }
+        }
+    }
+}
+
 pub fn parse_value(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
     let value_start_index = skip_whitespace(string, start_index);
     if !check_inbounds(string, value_start_index) {
         return Err(Error::Syntax);
     }
 
-    let (value, start_of_trailing_whitespace) = match string[value_start_index] {
+    let result = match string[value_start_index] {
         b'n' => {parse_null(string, value_start_index)},
         b't' => {parse_true(string, value_start_index)},
         b'f' => {parse_false(string, value_start_index)},
-        b'[' => {todo!()},
+        b'[' => {parse_array(string, value_start_index)},
         b'{' => {todo!()},
         b'"' => {parse_string(string, value_start_index)},
         b'-'|b'0'..=b'9' => {parse_number(string, value_start_index)},
         _ => {Err(Error::Syntax)}
-    }?;
+    };
+
+    let (value, start_of_trailing_whitespace) = match result {
+        Ok(res) => res,
+        e => {
+            return e;
+        }
+    };
 
     let end_index = skip_whitespace(string, start_of_trailing_whitespace);
     Ok((value, end_index))
@@ -497,5 +556,23 @@ mod tests {
 
         let ok_hand = parse_value(&[b'"', 0xf0, 0x9f, 0x91, 0x8c, b'"'], 0);
         assert_eq!(ok_hand, Ok((Value::String("👌".into()), 6)));
+    }
+
+    #[test]
+    fn array() {
+        let empty = parse_value(b"[]", 0);
+        assert_eq!(empty, Ok((Value::Array(vec![]), 2)));
+
+        let empty_ws = parse_value(b"[ ]", 0);
+        assert_eq!(empty_ws, Ok((Value::Array(vec![]), 3)));
+
+        let one_two = parse_value(b"[1,2]", 0);
+        assert_eq!(one_two, Ok((Value::Array(vec![Value::Number(IntOrFloat::Int(1)),Value::Number(IntOrFloat::Int(2))]), 5)));
+
+        let one_two_spaced = parse_value(b" [ 1 , 2 ] ", 0);
+        assert_eq!(one_two_spaced, Ok((Value::Array(vec![Value::Number(IntOrFloat::Int(1)),Value::Number(IntOrFloat::Int(2))]), 11)));
+
+        let hello_world = parse_value(br#"["hello", "world", false, true, null]"#, 0);
+        assert_eq!(hello_world, Ok((Value::Array(vec![Value::String("hello".into()), Value::String("world".into()), Value::Boolean(false), Value::Boolean(true), Value::Null]), 37)));
     }
 }
