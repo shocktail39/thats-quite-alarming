@@ -21,69 +21,70 @@ pub enum Value {
 #[derive(Debug, PartialEq)]
 pub enum Error {
     Syntax,
-    NotClosed
+    NotClosed,
+    BadUtf8
 }
 
-const fn check_inbounds(string: &[u8], start_index: usize) -> Result<(), Error> {
-    if start_index < string.len() {
-        Ok(())
+const fn check_inbounds(string: &[u8], start_index: usize) -> bool {
+    start_index < string.len()
+}
+
+const fn skip_whitespace(string: &[u8], start_index: usize) -> usize {
+    let mut current_index = start_index;
+    while check_inbounds(string, current_index) {
+        match string[current_index] {
+            b' '|b'\t'|b'\r'|b'\n' => {/* do nothing, continue loop*/},
+            _ => {return current_index;}
+        }
+        current_index += 1;
+    }
+    current_index
+}
+
+const fn parse_null(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+    if check_inbounds(string, start_index + 3) {
+        match (string[start_index+1], string[start_index+2], string[start_index+3]) {
+            (b'u', b'l', b'l') => Ok((Value::Null, start_index + 4)),
+            _ => Err(Error::Syntax)
+        }
     } else {
         Err(Error::Syntax)
     }
 }
 
-const fn skip_whitespace(string: &[u8], start_index: usize) -> usize {
-    let mut i = start_index;
-    while i < string.len() {
-        match string[i] {
-            b' '|b'\t'|b'\r'|b'\n' => {/* do nothing, continue loop*/},
-            _ => {return i;}
-        }
-        i += 1;
-    }
-    string.len()
-}
-
-const fn parse_null(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
-    if let Err(e) = check_inbounds(string, start_index + 3) {
-        Err(e)
-    } else {
-        match (string[start_index+1], string[start_index+2], string[start_index+3]) {
-            (b'u', b'l', b'l') => Ok((Value::Null, start_index + 4)),
-            _ => Err(Error::Syntax)
-        }
-    }
-}
-
 const fn parse_true(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
-    if let Err(e) = check_inbounds(string, start_index + 3) {
-        Err(e)
-    } else {
+    if check_inbounds(string, start_index + 3) {
         match (string[start_index+1], string[start_index+2], string[start_index+3]) {
             (b'r', b'u', b'e') => Ok((Value::Boolean(true), start_index + 4)),
             _ => Err(Error::Syntax)
         }
+    } else {
+        Err(Error::Syntax)
     }
 }
 
 const fn parse_false(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
-    if let Err(e) = check_inbounds(string, start_index + 4) {
-        Err(e)
-    } else {
+    if check_inbounds(string, start_index + 4) {
         match (string[start_index+1], string[start_index+2], string[start_index+3], string[start_index+4]) {
             (b'a', b'l', b's', b'e') => Ok((Value::Boolean(false), start_index + 5)),
             _ => Err(Error::Syntax)
         }
+    } else {
+        Err(Error::Syntax)
     }
 }
 
 fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+    const fn is_number(value: u8) -> bool {
+        value >= b'0' && value <= b'9'
+    }
+
     let mut current_index = start_index;
 
     let (signi, signf) = if string[current_index] == b'-' {
         current_index += 1;
-        if let Err(e) = check_inbounds(string, current_index) {
-            return Err(e);
+        if !check_inbounds(string, current_index) {
+            return Err(Error::Syntax);
         }
         (-1i64, -1f64)
     } else {
@@ -99,9 +100,8 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
             let mut number = (string[current_index] - b'0') as i64;
             current_index += 1;
             while
-                current_index < string.len()
-                && string[current_index] >= b'0'
-                && string[current_index] <= b'9'
+                check_inbounds(string, current_index)
+                && is_number(string[current_index])
             {
                 number *= 10;
                 number += (string[current_index] - b'0') as i64;
@@ -114,7 +114,7 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
         }
     };
 
-    if current_index >= string.len() || (
+    if !check_inbounds(string, current_index) || (
         string[current_index] != b'.'
         && string[current_index] != b'e'
         && string[current_index] != b'E'
@@ -127,18 +127,14 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
 
     let right_of_decimal = if string[current_index] == b'.' {
         current_index += 1;
-        if let Err(e) = check_inbounds(string, current_index) {
-            return Err(e);
-        }
-        if string[current_index] < b'0' || string[current_index] > b'9' {
+        if !check_inbounds(string, current_index) || !is_number(string[current_index]) {
             return Err(Error::Syntax);
         }
         let mut current_decimal_place = 0.1f64;
         let mut number = 0f64;
         while
-            current_index < string.len()
-            && string[current_index] >= b'0'
-            && string[current_index] <= b'9'
+            check_inbounds(string, current_index)
+            && is_number(string[current_index])
         {
             number += (string[current_index] - b'0') as f64 * current_decimal_place;
             current_decimal_place /= 10f64;
@@ -149,25 +145,25 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
         None
     };
 
-    if current_index < string.len() && (
+    if check_inbounds(string, current_index) && (
         string[current_index] == b'e' || string[current_index] == b'E'
     ) {
         current_index += 1;
-        if let Err(e) = check_inbounds(string, current_index) {
-            return Err(e);
+        if !check_inbounds(string, current_index) {
+            return Err(Error::Syntax);
         }
         let exponent_sign = match string[current_index] {
             b'-' => {
                 current_index += 1;
-                if let Err(e) = check_inbounds(string, current_index) {
-                    return Err(e);
+                if !check_inbounds(string, current_index) {
+                    return Err(Error::Syntax);
                 }
                 -1i32
             },
             b'+' => {
                 current_index += 1;
-                if let Err(e) = check_inbounds(string, current_index) {
-                    return Err(e);
+                if !check_inbounds(string, current_index) {
+                    return Err(Error::Syntax);
                 }
                 1i32
             },
@@ -182,9 +178,8 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
         let exponent_amount = {
             let mut number = 0i32;
             while
-                current_index < string.len()
-                && string[current_index] >= b'0'
-                && string[current_index] <= b'9'
+                check_inbounds(string, current_index)
+                && is_number(string[current_index])
             {
                 number *= 10;
                 number += (string[current_index] - b'0') as i32;
@@ -223,9 +218,171 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
     }
 }
 
+fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+    let mut current_index = start_index + 1;
+
+    let mut result = String::new();
+    loop {
+        if !check_inbounds(string, current_index) {
+            return Err(Error::NotClosed);
+        }
+
+        match string[current_index] {
+            b'"' => {
+                return Ok((Value::String(result), current_index + 1));
+            },
+            b'\\' => {
+                if !check_inbounds(string, current_index + 1) {
+                    return Err(Error::Syntax);
+                }
+                result.push(match string[current_index + 1] {
+                    b'"'|b'\\'|b'/' => {
+                        let ch = string[current_index + 1] as char;
+                        current_index += 2;
+                        ch
+                    },
+                    b'b' => { // backspace
+                        current_index += 2;
+                        8 as char
+                    },
+                    b'f' => { // formfeed
+                        current_index += 2;
+                        12 as char
+                    },
+                    b'n' => { // newline
+                        current_index += 2;
+                        '\n'
+                    },
+                    b'r' => { // carriage return
+                        current_index += 2;
+                        '\r'
+                    },
+                    b't' => { // tab
+                        current_index += 2;
+                        '\t'
+                    },
+                    b'u' => { // unicode
+                        if !check_inbounds(string, current_index + 5) {
+                            return Err(Error::Syntax);
+                        }
+
+                        const fn hex_to_nibble(value: u8) -> Option<u32> {
+                            match value {
+                                b'0'..=b'9' => Some((value - b'0') as u32),
+                                b'a'..=b'f' => Some((value - b'a' + 10) as u32),
+                                b'A'..=b'F' => Some((value - b'A' + 10) as u32),
+                                _ => None
+                            }
+                        }
+
+                        let codepoint = match (
+                            hex_to_nibble(string[current_index + 2]),
+                            hex_to_nibble(string[current_index + 3]),
+                            hex_to_nibble(string[current_index + 4]),
+                            hex_to_nibble(string[current_index + 5])
+                        ) {
+                            (Some(a), Some(b), Some(c), Some(d)) => {
+                                (a << 12) | (b << 8) | (c << 4) | d
+                            },
+                            _ => {return Err(Error::Syntax);}
+                        };
+                        if let Some(ch) = char::from_u32(codepoint) {
+                            current_index += 6;
+                            ch
+                        } else {
+                            return Err(Error::Syntax);
+                        }
+                    },
+                    _ => {
+                        return Err(Error::Syntax);
+                    }
+                });
+            },
+            utf8 => {
+                const fn invalid_second_byte(value: u8) -> bool {
+                    value < 0b10_000000 || value > 0b10_111111
+                }
+
+                // handle utf-8
+                let unicode = match utf8 {
+                    0..=0b01111111 => {
+                        current_index += 1;
+                        utf8 as u32
+                    },
+                    0b110_00000..=0b110_11111 => {
+                        if !check_inbounds(string, current_index + 1) {
+                            return Err(Error::Syntax);
+                        }
+                        let second = string[current_index + 1];
+                        if invalid_second_byte(second) {
+                            return Err(Error::BadUtf8);
+                        }
+                        current_index += 2;
+                        let first = ((utf8 & 0b00011111) as u32) << 6;
+                        let second = (second & 0b00111111) as u32;
+                        first | second
+                    },
+                    0b1110_0000..=0b1110_1111 => {
+                        if !check_inbounds(string, current_index + 2) {
+                            return Err(Error::Syntax);
+                        }
+                        let second = string[current_index + 1];
+                        if invalid_second_byte(second) {
+                            return Err(Error::BadUtf8);
+                        }
+                        let third = string[current_index + 2];
+                        if invalid_second_byte(third) {
+                            return Err(Error::BadUtf8);
+                        }
+                        current_index += 3;
+                        let first = ((utf8 & 0b00001111) as u32) << 12;
+                        let second = ((second & 0b00111111) as u32) << 6;
+                        let third = (third & 0b00111111) as u32;
+                        first | second | third
+                    },
+                    0b11110_000..=0b11110_111 => {
+                        if !check_inbounds(string, current_index + 3) {
+                            return Err(Error::Syntax);
+                        }
+                        let second = string[current_index + 1];
+                        if invalid_second_byte(second) {
+                            return Err(Error::BadUtf8);
+                        }
+                        let third = string[current_index + 2];
+                        if invalid_second_byte(third) {
+                            return Err(Error::BadUtf8);
+                        }
+                        let fourth = string[current_index + 3];
+                        if invalid_second_byte(fourth) {
+                            return Err(Error::BadUtf8);
+                        }
+                        current_index += 4;
+                        let first = ((utf8 & 0b00000111) as u32) << 18;
+                        let second = ((second & 0b00111111) as u32) << 12;
+                        let third = ((third & 0b00111111) as u32) << 6;
+                        let fourth = (fourth & 0b00111111) as u32;
+                        first | second | third | fourth
+                    },
+                    _ => {
+                      return Err(Error::BadUtf8);
+                    }
+                };
+
+                if let Some(ch) = char::from_u32(unicode) {
+                    result.push(ch);
+                } else {
+                    return Err(Error::BadUtf8);
+                }
+            }
+        }
+    }
+}
+
 pub fn parse_value(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
     let value_start_index = skip_whitespace(string, start_index);
-    check_inbounds(string, value_start_index)?;
+    if !check_inbounds(string, value_start_index) {
+        return Err(Error::Syntax);
+    }
 
     let (value, start_of_trailing_whitespace) = match string[value_start_index] {
         b'n' => {parse_null(string, value_start_index)},
@@ -233,7 +390,7 @@ pub fn parse_value(string: &[u8], start_index: usize) -> Result<(Value, usize), 
         b'f' => {parse_false(string, value_start_index)},
         b'[' => {todo!()},
         b'{' => {todo!()},
-        b'"' => {todo!()},
+        b'"' => {parse_string(string, value_start_index)},
         b'-'|b'0'..=b'9' => {parse_number(string, value_start_index)},
         _ => {Err(Error::Syntax)}
     }?;
@@ -247,7 +404,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_true() {
+    fn true_value() {
         let just_true = parse_value(b"true", 0);
         let true_with_whitespace = parse_value(b"\n\r\t true  ", 0);
         assert_eq!(just_true, Ok((Value::Boolean(true), 4)));
@@ -255,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn test_false() {
+    fn false_value() {
         let just_false = parse_value(b"false", 0);
         let false_with_whitespace = parse_value(b"\n\r\t false  ", 0);
         assert_eq!(just_false, Ok((Value::Boolean(false), 5)));
@@ -263,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn test_null() {
+    fn null() {
         let just_null = parse_value(b"null", 0);
         let null_with_whitespace = parse_value(b"\n\r\t null  ", 0);
         assert_eq!(just_null, Ok((Value::Null, 4)));
@@ -271,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn test_number() {
+    fn number() {
         let zero = parse_value(b"0", 0);
         assert_eq!(zero, Ok((Value::Number(IntOrFloat::Int(0)), 1)));
 
@@ -322,5 +479,23 @@ mod tests {
 
         let neg_two_three_point_four_five_e_neg_six_seven = parse_value(b"-23.45E-67", 0);
         assert_eq!(neg_two_three_point_four_five_e_neg_six_seven, Ok((Value::Number(IntOrFloat::Float(-23.45e-67)), 10)));
+    }
+
+    #[test]
+    fn string() {
+        let empty = parse_value(br#""""#, 0);
+        assert_eq!(empty, Ok((Value::String("".into()), 2)));
+
+        let quote_slash = parse_value(br#""\"\\""#, 0);
+        assert_eq!(quote_slash, Ok((Value::String(r#""\"#.into()), 6)));
+
+        let backspace = parse_value(br#""\b""#, 0);
+        assert_eq!(backspace, Ok((Value::String((8 as char).into()), 4)));
+
+        let aaaa = parse_value(br#""A\u0041A\u0041""#, 0);
+        assert_eq!(aaaa, Ok((Value::String("AAAA".into()), 16)));
+
+        let ok_hand = parse_value(&[b'"', 0xf0, 0x9f, 0x91, 0x8c, b'"'], 0);
+        assert_eq!(ok_hand, Ok((Value::String("👌".into()), 6)));
     }
 }
