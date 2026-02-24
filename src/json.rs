@@ -33,10 +33,13 @@ const fn skip_whitespace(string: &[u8], start_index: usize) -> usize {
     let mut current_index = start_index;
     while check_inbounds(string, current_index) {
         match string[current_index] {
-            b' '|b'\t'|b'\r'|b'\n' => {/* do nothing, continue loop*/},
-            _ => {return current_index;}
+            b' '|b'\t'|b'\r'|b'\n' => {
+                current_index += 1;
+            },
+            _ => {
+                return current_index;
+            }
         }
-        current_index += 1;
     }
     current_index
 }
@@ -430,6 +433,61 @@ fn parse_array(string: &[u8], start_index: usize) -> Result<(Value, usize), Erro
     }
 }
 
+fn parse_object(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+    let mut current_index = skip_whitespace(string, start_index + 1);
+    if !check_inbounds(string, current_index) {
+        return Err(Error::NotClosed);
+    }
+
+    if string[current_index] == b'}' {
+        return Ok((Value::Object(HashMap::default()), current_index + 1));
+    }
+
+    let mut result = HashMap::new();
+    loop {
+        let key = match parse_string(string, current_index) {
+            Ok((Value::String(k), index)) => {
+                current_index = skip_whitespace(string, index);
+                k
+            },
+            e => {
+                return e;
+            }
+        };
+        if !check_inbounds(string, current_index + 1) || string[current_index] != b':' {
+            return Err(Error::Syntax);
+        }
+        current_index += 1;
+        let value = match parse_value(string, current_index) {
+            Ok((v, index)) => {
+                current_index = index;
+                v
+            },
+            e => {
+                return e;
+            }
+        };
+        if !check_inbounds(string, current_index) {
+            return Err(Error::NotClosed);
+        }
+        result.insert(key, value);
+        match string[current_index] {
+            b'}' => {
+                return Ok((Value::Object(result), current_index + 1));
+            },
+            b',' => {
+                current_index = skip_whitespace(string, current_index + 1);
+                if !check_inbounds(string, current_index) {
+                    return Err(Error::NotClosed);
+                }
+            },
+            _ => {
+                return Err(Error::Syntax);
+            }
+        }
+    }
+}
+
 pub fn parse_value(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
     let value_start_index = skip_whitespace(string, start_index);
     if !check_inbounds(string, value_start_index) {
@@ -441,7 +499,7 @@ pub fn parse_value(string: &[u8], start_index: usize) -> Result<(Value, usize), 
         b't' => {parse_true(string, value_start_index)},
         b'f' => {parse_false(string, value_start_index)},
         b'[' => {parse_array(string, value_start_index)},
-        b'{' => {todo!()},
+        b'{' => {parse_object(string, value_start_index)},
         b'"' => {parse_string(string, value_start_index)},
         b'-'|b'0'..=b'9' => {parse_number(string, value_start_index)},
         _ => {Err(Error::Syntax)}
@@ -574,5 +632,52 @@ mod tests {
 
         let hello_world = parse_value(br#"["hello", "world", false, true, null]"#, 0);
         assert_eq!(hello_world, Ok((Value::Array(vec![Value::String("hello".into()), Value::String("world".into()), Value::Boolean(false), Value::Boolean(true), Value::Null]), 37)));
+    }
+
+    #[test]
+    fn object() {
+        let empty = parse_value(b"{}", 0);
+        assert_eq!(empty, Ok((Value::Object(HashMap::new()), 2)));
+
+        let empty_ws = parse_value(b"{ }", 0);
+        assert_eq!(empty_ws, Ok((Value::Object(HashMap::new()), 3)));
+
+        let hello_world = parse_value(br#"{"hello":"world"}"#, 0);
+        assert_eq!(hello_world, Ok((Value::Object(HashMap::from([("hello".into(), Value::String("world".into()))])), 17)));
+
+        let six_seven = parse_value(br#"{"six":6,"seven":7.0}"#, 0);
+        assert_eq!(six_seven, Ok((Value::Object(HashMap::from([("six".into(), Value::Number(IntOrFloat::Int(6))), ("seven".into(), Value::Number(IntOrFloat::Float(7f64)))])), 21)));
+
+        let six_seven_ws = parse_value(br#" { "six" : 6 , "seven":7.0 } "#, 0);
+        assert_eq!(six_seven_ws, Ok((Value::Object(HashMap::from([("six".into(), Value::Number(IntOrFloat::Int(6))), ("seven".into(), Value::Number(IntOrFloat::Float(7f64)))])), 29)));
+    }
+
+    #[test]
+    fn nested() {
+        let nested = parse_value(br#"{"first":[2,"three",4.0],"five":6,"seven":{"eight":[9,{"ten":11,"twelve":13}]}}"#, 0);
+        assert_eq!(nested, Ok((
+            Value::Object(HashMap::from([
+                ("first".into(), Value::Array(vec![
+                    Value::Number(IntOrFloat::Int(2)),
+                    Value::String("three".into()),
+                    Value::Number(IntOrFloat::Float(4f64))
+                ])),
+                ("five".into(), Value::Number(IntOrFloat::Int(6))),
+                ("seven".into(), Value::Object(
+                    HashMap::from([
+                        (
+                            "eight".into(),
+                            Value::Array(vec![
+                                Value::Number(IntOrFloat::Int(9)),
+                                Value::Object(HashMap::from([
+                                    ("ten".into(), Value::Number(IntOrFloat::Int(11))),
+                                    ("twelve".into(), Value::Number(IntOrFloat::Int(13)))
+                                ]))
+                            ])
+                        )
+                    ])
+                ))
+            ]))
+        , 79)));
     }
 }
