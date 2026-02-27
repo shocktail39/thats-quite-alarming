@@ -5,7 +5,7 @@ use chrono::NaiveDateTime;
 
 use crate::alarm::Alarm;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct AlarmHeap (
     BinaryHeap<Reverse<Alarm>>
 );

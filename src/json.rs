@@ -8,6 +8,22 @@ pub enum IntOrFloat {
     Float(f64)
 }
 
+impl IntOrFloat {
+    pub const fn into_int(self) -> i64 {
+        match self {
+            Self::Int(i) => i,
+            Self::Float(f) => f as i64
+        }
+    }
+
+    pub const fn into_float(self) -> f64 {
+        match self {
+            Self::Float(f) => f,
+            Self::Int(i) => i as f64
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Value {
     Null,
