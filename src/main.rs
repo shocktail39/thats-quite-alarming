@@ -5,16 +5,22 @@ pub mod event_listener;
 pub mod json;
 pub mod stoat_api;
 
-use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 
-use crate::alarm::Alarm;
-use crate::alarm_heap::AlarmHeap;
-use crate::json::Value;
-use chrono::Days;
 use chrono::Utc;
 
+use crate::alarm_heap::AlarmHeap;
+
 fn main() {
-    event_listener::learn_how_to_websocket(config::BOT_TOKEN);
+    let alarm_heap = Arc::new(Mutex::new(AlarmHeap::default()));
+    let listener_handle = event_listener::start_listening(alarm_heap.clone());
+    while !listener_handle.is_finished() {
+        while let Some(alarm) = alarm_heap.lock().unwrap().pop_if_timeup(&Utc::now().naive_utc()) {
+            stoat_api::post_alarm(alarm);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
     // basic testing to make sure the heap pops in the correct order
     /*let now = Utc::now().naive_utc();
     let now_alarm = Alarm::from_message(HashMap::from([
