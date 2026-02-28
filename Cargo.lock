@@ -638,6 +638,7 @@ name = "thats-quite-alarming"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "native-tls",
  "tungstenite",
 ]
 

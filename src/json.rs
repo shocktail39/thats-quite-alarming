@@ -41,13 +41,15 @@ pub enum Error {
     BadUtf8
 }
 
-const fn check_inbounds(string: &[u8], start_index: usize) -> bool {
-    start_index < string.len()
+type ParseResult = Result<(Value, usize), Error>;
+
+const fn is_inbounds(string: &[u8], index: usize) -> bool {
+    index < string.len()
 }
 
 const fn skip_whitespace(string: &[u8], start_index: usize) -> usize {
     let mut current_index = start_index;
-    while check_inbounds(string, current_index) {
+    while is_inbounds(string, current_index) {
         match string[current_index] {
             b' '|b'\t'|b'\r'|b'\n' => {
                 current_index += 1;
@@ -60,9 +62,13 @@ const fn skip_whitespace(string: &[u8], start_index: usize) -> usize {
     current_index
 }
 
-const fn parse_null(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
-    if check_inbounds(string, start_index + 3) {
-        match (string[start_index+1], string[start_index+2], string[start_index+3]) {
+const fn parse_null(string: &[u8], start_index: usize) -> ParseResult {
+    if is_inbounds(string, start_index + 3) {
+        match (
+            string[start_index + 1],
+            string[start_index + 2],
+            string[start_index + 3]
+        ) {
             (b'u', b'l', b'l') => Ok((Value::Null, start_index + 4)),
             _ => Err(Error::Syntax)
         }
@@ -71,9 +77,13 @@ const fn parse_null(string: &[u8], start_index: usize) -> Result<(Value, usize),
     }
 }
 
-const fn parse_true(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
-    if check_inbounds(string, start_index + 3) {
-        match (string[start_index+1], string[start_index+2], string[start_index+3]) {
+const fn parse_true(string: &[u8], start_index: usize) -> ParseResult {
+    if is_inbounds(string, start_index + 3) {
+        match (
+            string[start_index + 1],
+            string[start_index + 2],
+            string[start_index + 3]
+        ) {
             (b'r', b'u', b'e') => Ok((Value::Boolean(true), start_index + 4)),
             _ => Err(Error::Syntax)
         }
@@ -82,9 +92,14 @@ const fn parse_true(string: &[u8], start_index: usize) -> Result<(Value, usize),
     }
 }
 
-const fn parse_false(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
-    if check_inbounds(string, start_index + 4) {
-        match (string[start_index+1], string[start_index+2], string[start_index+3], string[start_index+4]) {
+const fn parse_false(string: &[u8], start_index: usize) -> ParseResult {
+    if is_inbounds(string, start_index + 4) {
+        match (
+            string[start_index + 1],
+            string[start_index + 2],
+            string[start_index + 3],
+            string[start_index + 4]
+        ) {
             (b'a', b'l', b's', b'e') => Ok((Value::Boolean(false), start_index + 5)),
             _ => Err(Error::Syntax)
         }
@@ -93,16 +108,16 @@ const fn parse_false(string: &[u8], start_index: usize) -> Result<(Value, usize)
     }
 }
 
-fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+fn parse_number(string: &[u8], start_index: usize) -> ParseResult {
     const fn is_number(value: u8) -> bool {
-        value >= b'0' && value <= b'9'
+        b'0' <= value && value <= b'9'
     }
 
     let mut current_index = start_index;
 
     let (signi, signf) = if string[current_index] == b'-' {
         current_index += 1;
-        if !check_inbounds(string, current_index) {
+        if !is_inbounds(string, current_index) {
             return Err(Error::Syntax);
         }
         (-1i64, -1f64)
@@ -119,7 +134,7 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
             let mut number = (string[current_index] - b'0') as i64;
             current_index += 1;
             while
-                check_inbounds(string, current_index)
+                is_inbounds(string, current_index)
                 && is_number(string[current_index])
             {
                 number *= 10;
@@ -133,7 +148,7 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
         }
     };
 
-    if !check_inbounds(string, current_index) || (
+    if !is_inbounds(string, current_index) || (
         string[current_index] != b'.'
         && string[current_index] != b'e'
         && string[current_index] != b'E'
@@ -146,13 +161,13 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
 
     let right_of_decimal = if string[current_index] == b'.' {
         current_index += 1;
-        if !check_inbounds(string, current_index) || !is_number(string[current_index]) {
+        if !is_inbounds(string, current_index) || !is_number(string[current_index]) {
             return Err(Error::Syntax);
         }
         let mut current_decimal_place = 0.1f64;
         let mut number = 0f64;
         while
-            check_inbounds(string, current_index)
+            is_inbounds(string, current_index)
             && is_number(string[current_index])
         {
             number += (string[current_index] - b'0') as f64 * current_decimal_place;
@@ -164,24 +179,24 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
         None
     };
 
-    if check_inbounds(string, current_index) && (
+    if is_inbounds(string, current_index) && (
         string[current_index] == b'e' || string[current_index] == b'E'
     ) {
         current_index += 1;
-        if !check_inbounds(string, current_index) {
+        if !is_inbounds(string, current_index) {
             return Err(Error::Syntax);
         }
         let exponent_sign = match string[current_index] {
             b'-' => {
                 current_index += 1;
-                if !check_inbounds(string, current_index) {
+                if !is_inbounds(string, current_index) {
                     return Err(Error::Syntax);
                 }
                 -1i32
             },
             b'+' => {
                 current_index += 1;
-                if !check_inbounds(string, current_index) {
+                if !is_inbounds(string, current_index) {
                     return Err(Error::Syntax);
                 }
                 1i32
@@ -197,7 +212,7 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
         let exponent_amount = {
             let mut number = 0i32;
             while
-                check_inbounds(string, current_index)
+                is_inbounds(string, current_index)
                 && is_number(string[current_index])
             {
                 number *= 10;
@@ -237,12 +252,12 @@ fn parse_number(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
     }
 }
 
-fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+fn parse_string(string: &[u8], start_index: usize) -> ParseResult {
     let mut current_index = start_index + 1;
 
     let mut result = String::new();
     loop {
-        if !check_inbounds(string, current_index) {
+        if !is_inbounds(string, current_index) {
             return Err(Error::NotClosed);
         }
 
@@ -251,7 +266,7 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                 return Ok((Value::String(result), current_index + 1));
             },
             b'\\' => {
-                if !check_inbounds(string, current_index + 1) {
+                if !is_inbounds(string, current_index + 1) {
                     return Err(Error::Syntax);
                 }
                 result.push(match string[current_index + 1] {
@@ -281,7 +296,7 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                         '\t'
                     },
                     b'u' => { // unicode
-                        if !check_inbounds(string, current_index + 5) {
+                        if !is_inbounds(string, current_index + 5) {
                             return Err(Error::Syntax);
                         }
 
@@ -329,7 +344,7 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                         utf8 as u32
                     },
                     0b110_00000..=0b110_11111 => {
-                        if !check_inbounds(string, current_index + 1) {
+                        if !is_inbounds(string, current_index + 1) {
                             return Err(Error::Syntax);
                         }
                         let second = string[current_index + 1];
@@ -342,7 +357,7 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                         first | second
                     },
                     0b1110_0000..=0b1110_1111 => {
-                        if !check_inbounds(string, current_index + 2) {
+                        if !is_inbounds(string, current_index + 2) {
                             return Err(Error::Syntax);
                         }
                         let second = string[current_index + 1];
@@ -360,7 +375,7 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                         first | second | third
                     },
                     0b11110_000..=0b11110_111 => {
-                        if !check_inbounds(string, current_index + 3) {
+                        if !is_inbounds(string, current_index + 3) {
                             return Err(Error::Syntax);
                         }
                         let second = string[current_index + 1];
@@ -383,7 +398,7 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                         first | second | third | fourth
                     },
                     _ => {
-                      return Err(Error::BadUtf8);
+                        return Err(Error::BadUtf8);
                     }
                 };
 
@@ -397,17 +412,12 @@ fn parse_string(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
     }
 }
 
-fn parse_array(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
-    let mut current_index = start_index + 1;
-    if !check_inbounds(string, current_index) {
+fn parse_array(string: &[u8], start_index: usize) -> ParseResult {
+    let mut current_index = skip_whitespace(string, start_index + 1);
+    if !is_inbounds(string, current_index) {
         return Err(Error::NotClosed);
     }
 
-    current_index = skip_whitespace(string, current_index);
-
-    if !check_inbounds(string, current_index) {
-        return Err(Error::NotClosed);
-    }
     if string[current_index] == b']' {
         return Ok((Value::Array(vec![]), current_index + 1));
     }
@@ -424,7 +434,7 @@ fn parse_array(string: &[u8], start_index: usize) -> Result<(Value, usize), Erro
     }
 
     loop {
-        if !check_inbounds(string, current_index) {
+        if !is_inbounds(string, current_index) {
             return Err(Error::NotClosed);
         }
         match string[current_index] {
@@ -449,9 +459,9 @@ fn parse_array(string: &[u8], start_index: usize) -> Result<(Value, usize), Erro
     }
 }
 
-fn parse_object(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
+fn parse_object(string: &[u8], start_index: usize) -> ParseResult {
     let mut current_index = skip_whitespace(string, start_index + 1);
-    if !check_inbounds(string, current_index) {
+    if !is_inbounds(string, current_index) {
         return Err(Error::NotClosed);
     }
 
@@ -470,7 +480,7 @@ fn parse_object(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                 return e;
             }
         };
-        if !check_inbounds(string, current_index + 1) || string[current_index] != b':' {
+        if !is_inbounds(string, current_index + 1) || string[current_index] != b':' {
             return Err(Error::Syntax);
         }
         current_index += 1;
@@ -483,7 +493,7 @@ fn parse_object(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
                 return e;
             }
         };
-        if !check_inbounds(string, current_index) {
+        if !is_inbounds(string, current_index) {
             return Err(Error::NotClosed);
         }
         result.insert(key, value);
@@ -493,7 +503,7 @@ fn parse_object(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
             },
             b',' => {
                 current_index = skip_whitespace(string, current_index + 1);
-                if !check_inbounds(string, current_index) {
+                if !is_inbounds(string, current_index) {
                     return Err(Error::NotClosed);
                 }
             },
@@ -506,19 +516,19 @@ fn parse_object(string: &[u8], start_index: usize) -> Result<(Value, usize), Err
 
 pub fn parse_value(string: &[u8], start_index: usize) -> Result<(Value, usize), Error> {
     let value_start_index = skip_whitespace(string, start_index);
-    if !check_inbounds(string, value_start_index) {
+    if !is_inbounds(string, value_start_index) {
         return Err(Error::Syntax);
     }
 
     let result = match string[value_start_index] {
-        b'n' => {parse_null(string, value_start_index)},
-        b't' => {parse_true(string, value_start_index)},
-        b'f' => {parse_false(string, value_start_index)},
-        b'[' => {parse_array(string, value_start_index)},
-        b'{' => {parse_object(string, value_start_index)},
-        b'"' => {parse_string(string, value_start_index)},
-        b'-'|b'0'..=b'9' => {parse_number(string, value_start_index)},
-        _ => {Err(Error::Syntax)}
+        b'n' => parse_null(string, value_start_index),
+        b't' => parse_true(string, value_start_index),
+        b'f' => parse_false(string, value_start_index),
+        b'[' => parse_array(string, value_start_index),
+        b'{' => parse_object(string, value_start_index),
+        b'"' => parse_string(string, value_start_index),
+        b'-'|b'0'..=b'9' => parse_number(string, value_start_index),
+        _ => Err(Error::Syntax)
     };
 
     let (value, start_of_trailing_whitespace) = match result {
