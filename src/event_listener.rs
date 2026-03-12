@@ -1,12 +1,11 @@
-use std::collections::HashMap;
-use std::io::Read;
-use std::io::Write;
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::thread::JoinHandle;
+
 use tungstenite::ClientRequestBuilder;
+use tungstenite::stream::MaybeTlsStream;
 use tungstenite::protocol::Message;
 use tungstenite::protocol::WebSocket;
 
@@ -17,72 +16,111 @@ use crate::json;
 use crate::json::Value;
 use crate::stoat_api;
 
-struct WebSocketListener<T> {
-    stream: WebSocket<T>,
-    bot_id: Option<String>,
+struct WebSocketListener {
+    stream: WebSocket<MaybeTlsStream<TcpStream>>,
+    bot_id: String,
     alarm_heap: Arc<Mutex<AlarmHeap>>
 }
 
-impl<T: Read + Write> WebSocketListener<T> {
-    fn handle_ready(&mut self, ready: HashMap<String, Value>) -> bool {
-        let Some(Value::Array(users)) = ready.get("users") else {
-            return false;
+impl WebSocketListener {
+    fn authenticate(stream: &mut WebSocket<MaybeTlsStream<TcpStream>>) {
+        let auth_request = Message::Text(format!(r#"{{"type":"Authenticate","token":"{}"}}"#, config::BOT_TOKEN).into());
+        stream.send(auth_request).expect("failed to send auth request to event websocket");
+
+        let ws_response = stream.read().expect("failed to read auth response from event websocket");
+        let Ok((Value::Object(mut response), _)) = json::parse_value(&ws_response.into_data(), 0) else {
+            panic!("auth response from event websocket is invalid");
         };
-        let Some(Value::Object(user)) = users.get(0) else {
-            return false;
+        let Some(Value::String(msg_type)) = response.remove("type") else {
+            panic!("auth response from event websocket is invalid");
         };
-        let Some(Value::String(id)) = user.get("_id") else {
-            return false;
-        };
-        self.bot_id = Some(id.into());
-        println!("ready!");
-        true
+        if msg_type.as_str() != "Authenticated" {
+            panic!("authentication failed.  make sure BOT_TOKEN in config.rs is set correctly");
+        }
     }
 
-    pub fn listen(mut self) {
+    fn handle_ready(response: Message) -> String {
+        let Ok((Value::Object(mut response), _)) = json::parse_value(&response.into_data(), 0) else {
+            panic!("ready response from event websocket is invalid");
+        };
+        let Some(Value::String(msg_type)) = response.remove("type") else {
+            panic!("ready response from event websocket is invalid");
+        };
+        if msg_type.as_str() != "Ready" {
+            panic!("ready response from event websocket is invalid");
+        }
+        let Some(Value::Array(mut users)) = response.remove("users") else {
+            panic!("invalid ready response from event endpoint");
+        };
+        let Value::Object(mut user) = users.remove(0) else {
+            panic!("invalid ready response from event endpoint");
+        };
+        let Some(Value::String(id)) = user.remove("_id") else {
+            panic!("invalid ready response from event endpoint");
+        };
+        id
+    }
+
+    fn new(alarm_heap: Arc<Mutex<AlarmHeap>>) -> Self {
+        let mut stream = {
+            let tls_request = ClientRequestBuilder::new(config::EVENT_ENDPOINT.parse().expect("make sure EVENT_ENDPOINT in config.rs is a valid url."));
+            let tcp_stream = TcpStream::connect(config::EVENT_SOCKET).expect("failed to start tcp session with event websocket");
+            let (tls_stream, _response) = tungstenite::client_tls(tls_request, tcp_stream).expect("failed to start tls session with event websocket");
+            tls_stream
+        };
+
+        Self::authenticate(&mut stream);
+
+        let ws_response = stream.read().expect("failed to read ready response from event websocket");
+        let bot_id = Self::handle_ready(ws_response);
+
+        Self {
+            stream,
+            bot_id,
+            alarm_heap
+        }
+    }
+
+    fn listen(mut self) {
         loop {
-            if let Ok(message) = self.stream.read() {
-                println!("{:?}", message);
-                let Ok((Value::Object(message), _)) = json::parse_value(&message.into_data(), 0) else {
-                    println!("you suck at this, steve.");
-                    continue;
-                };
-                let Some(Value::String(msg_type)) = message.get("type") else {
-                    println!("no message type");
-                    continue;
-                };
-                match msg_type.as_str() {
-                    "Ready" => {
-                        self.handle_ready(message);
-                    },
-                    "Message" => {
-                        if
-                            let Some(Value::Array(mentions)) = message.get("mentions")
-                            && let Some(ref bot_id) = self.bot_id 
-                            && mentions.contains(&Value::String(bot_id.to_string()))
-                        {
-                            if let Some(alarm) = Alarm::from_message(message) {
-                                stoat_api::react(&alarm.channel_id, &alarm.message_id, "👌");
-                                self.alarm_heap.lock().unwrap().push(alarm);
-                            }
-                        }
-                    },
-                    _ => {}
-                }
+            let Ok(response) = self.stream.read() else {
+                println!("unexpected response from event endpoint");
+                continue;
+            };
+            println!("{:?}", response);
+            if let Message::Close(_) = response {
+                println!("stream closed by event endpoint");
+                return;
             }
-            thread::sleep(std::time::Duration::from_secs(1));
+            let Ok((Value::Object(response), _)) = json::parse_value(&response.into_data(), 0) else {
+                println!("event endpoint response is unexpectedly not a json object.");
+                continue;
+            };
+            let Some(Value::String(msg_type)) = response.get("type") else {
+                println!("no message type");
+                continue;
+            };
+            match msg_type.as_str() {
+                "Message" => {
+                    if
+                        let Some(Value::Array(mentions)) = response.get("mentions")
+                        && mentions.contains(&Value::String(self.bot_id.to_string()))
+                    {
+                        if let Some(alarm) = Alarm::from_message(response) {
+                            stoat_api::react(&alarm.channel_id, &alarm.message_id, "👌");
+                            self.alarm_heap.lock().unwrap().push(alarm);
+                        }
+                    }
+                },
+                _ => {}
+            }
         }
     }
 }
 
 pub fn start_listening(alarm_heap: Arc<Mutex<AlarmHeap>>) -> JoinHandle<()> {
-    let auth_request = Message::Text(format!(r#"{{"type":"Authenticate","token":"{}"}}"#, config::BOT_TOKEN).into());
-    let request = ClientRequestBuilder::new(config::EVENT_ENDPOINT.parse().unwrap());
-    let stream = TcpStream::connect(config::EVENT_SOCKET).unwrap();
-    let (mut websocket_client, _response) = tungstenite::client_tls(request, stream).unwrap();
-    websocket_client.write(auth_request).unwrap();
-    websocket_client.flush().unwrap();
     thread::spawn(|| {
-        WebSocketListener::listen(WebSocketListener{stream: websocket_client, bot_id: None, alarm_heap});
+        let ws = WebSocketListener::new(alarm_heap);
+        ws.listen();
     })
 }
