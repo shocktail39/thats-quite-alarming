@@ -16,42 +16,15 @@ fn main() {
     let alarm_heap = Arc::new(Mutex::new(AlarmHeap::default()));
     let listener_handle = event_listener::start_listening(alarm_heap.clone());
     while !listener_handle.is_finished() {
-        while let Some(alarm) = alarm_heap.lock().unwrap().pop_if_timeup(&Utc::now().naive_utc()) {
-            stoat_api::post_alarm(alarm);
+        let maybe_alarm = {
+            let mut heap_lock = alarm_heap.lock().unwrap();
+            heap_lock.pop_if_timeup(&Utc::now().naive_utc())
+        };
+        if let Some(alarm) = maybe_alarm {
+            std::thread::spawn(|| {
+                stoat_api::post_alarm(alarm);
+            });
         }
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        std::thread::sleep(config::TIME_BETWEEN_REQUESTS);
     }
-    // basic testing to make sure the heap pops in the correct order
-    /*let now = Utc::now().naive_utc();
-    let now_alarm = Alarm::from_message(HashMap::from([
-        ("channel".into(), Value::String("some_channel_id".into())),
-        ("_id".into(), Value::String("my_user_id".into())),
-        ("content".into(), Value::String("@thatsquitealarming in 1s feed dog".into()))
-    ])).unwrap();
-    let yesterday_alarm = Alarm {
-        when: now.checked_sub_days(Days::new(1)).unwrap(),
-        what: "yesterday".into(),
-        message_id: "c".into(),
-        channel_id: "d".into()
-    };
-    let tomorrow_alarm = Alarm::from_message(HashMap::from([
-        ("channel".into(), Value::String("some_channel_id".into())),
-        ("_id".into(), Value::String("my_user_id".into())),
-        ("content".into(), Value::String("@thatsquitealarming in 1d10h1m30s water garden".into()))
-    ])).unwrap();
-    let mut alarm_heap = AlarmHeap::default();
-    alarm_heap.push(now_alarm);
-    alarm_heap.push(yesterday_alarm);
-    alarm_heap.push(tomorrow_alarm);
-    println!("{:?}", alarm_heap);
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    let now = Utc::now().naive_utc();
-    // this should print the alarm from yesterday
-    println!("{}", stoat_api::into_post_message(alarm_heap.pop_if_timeup(&now).unwrap(), config::BOT_TOKEN));
-    println!("\n");
-    // this should print the alarm for right now
-    println!("{}", stoat_api::into_post_message(alarm_heap.pop_if_timeup(&now).unwrap(), config::BOT_TOKEN));
-    println!("\n");
-    // this should panic, since it is not tomorrow yet
-    println!("{}", stoat_api::into_post_message(alarm_heap.pop_if_timeup(&now).unwrap(), config::BOT_TOKEN));*/
 }

@@ -107,7 +107,8 @@ impl WebSocketListener {
                         && mentions.contains(&Value::String(self.bot_id.to_string()))
                     {
                         if let Some(alarm) = Alarm::from_message(response) {
-                            stoat_api::react(&alarm.channel_id, &alarm.message_id, "👌");
+                            const GREEN_CHECK_BOX: &str = "%E2%9C%85";
+                            stoat_api::react(&alarm.channel_id, &alarm.message_id, GREEN_CHECK_BOX);
                             self.alarm_heap.lock().unwrap().push(alarm);
                         }
                     }
