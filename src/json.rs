@@ -263,6 +263,7 @@ fn parse_string(string: &[u8], start_index: usize) -> ParseResult {
 
         match string[current_index] {
             b'"' => {
+                result.shrink_to_fit();
                 return Ok((Value::String(result), current_index + 1));
             },
             b'\\' => {
@@ -419,7 +420,7 @@ fn parse_array(string: &[u8], start_index: usize) -> ParseResult {
     }
 
     if string[current_index] == b']' {
-        return Ok((Value::Array(vec![]), current_index + 1));
+        return Ok((Value::Array(Vec::with_capacity(0)), current_index + 1));
     }
 
     let mut result = vec![];
@@ -439,6 +440,7 @@ fn parse_array(string: &[u8], start_index: usize) -> ParseResult {
         }
         match string[current_index] {
             b']' => {
+                result.shrink_to_fit();
                 return Ok((Value::Array(result), current_index + 1));
             },
             b',' => {
@@ -466,7 +468,7 @@ fn parse_object(string: &[u8], start_index: usize) -> ParseResult {
     }
 
     if string[current_index] == b'}' {
-        return Ok((Value::Object(HashMap::default()), current_index + 1));
+        return Ok((Value::Object(HashMap::with_capacity(0)), current_index + 1));
     }
 
     let mut result = HashMap::new();
@@ -499,6 +501,7 @@ fn parse_object(string: &[u8], start_index: usize) -> ParseResult {
         result.insert(key, value);
         match string[current_index] {
             b'}' => {
+                result.shrink_to_fit();
                 return Ok((Value::Object(result), current_index + 1));
             },
             b',' => {
