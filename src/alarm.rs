@@ -63,23 +63,30 @@ impl Alarm {
             } else {
                 0u64
             };
+            let total_seconds = days + hours + mins + secs;
+            if total_seconds == 0 {
+                return None;
+            }
             Duration::from_secs(days + hours + mins + secs)
         };
 
         Some((now + duration, message))
     }
 
-    pub fn from_message(mut message: HashMap<String, Value>) -> Option<Self> {
-        let Some(Value::String(channel_id)) = message.remove("channel") else {
+    pub fn from_message(message: &HashMap<String, Value>) -> Option<Self> {
+        let Some(Value::String(channel_id)) = message.get("channel") else {
             return None;
         };
-        let Some(Value::String(message_id)) = message.remove("_id") else {
+        let Some(Value::String(message_id)) = message.get("_id") else {
             return None;
         };
-        let Some(Value::String(message_text)) = message.remove("content") else {
+        let Some(Value::String(message_text)) = message.get("content") else {
             return None;
         };
-        let (when, what) = Self::parse_timer(message_text)?;
+        let (when, what) = Self::parse_timer(message_text.to_string())?;
+
+        let channel_id = channel_id.to_string();
+        let message_id = message_id.to_string();
 
         Some(Self {
             when,

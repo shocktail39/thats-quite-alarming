@@ -7,7 +7,7 @@ use native_tls::TlsConnector;
 use crate::alarm::Alarm;
 use crate::config;
 
-fn sanitize(input: String) -> String {
+fn sanitize(input: &str) -> String {
     input.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 
@@ -23,10 +23,20 @@ fn send(request: &[u8]) {
     println!("{:?}", String::from_utf8(buffer).unwrap());
 }
 
+pub fn post_message(channel_id: &str, content: &str) {
+    let channel = sanitize(channel_id);
+    let content = sanitize(content);
+
+    let body = format!(r#"{{"content":"{}","embeds":[]}}"#, content);
+    let request = format!("POST /channels/{}/messages HTTP/1.0\r\nHost: {}\r\nContent-Length: {}\r\nX-Bot-Token: {}\r\n\r\n{}", channel, config::HTTP_ENDPOINT, body.len(), config::BOT_TOKEN, body);
+
+    send(request.as_bytes());
+}
+
 pub fn post_alarm(alarm: Alarm) {
-    let message = sanitize(alarm.what);
-    let channel = sanitize(alarm.channel_id);
-    let reply_to = sanitize(alarm.message_id);
+    let message = sanitize(&alarm.what);
+    let channel = sanitize(&alarm.channel_id);
+    let reply_to = sanitize(&alarm.message_id);
 
     let body = format!(r#"{{"content":"{}","replies":[{{"id":"{}","mention":true,"fail_if_not_exists":false}}]}}"#, message, reply_to);
     let request = format!("POST /channels/{}/messages HTTP/1.0\r\nHost: {}\r\nContent-Length: {}\r\nX-Bot-Token: {}\r\n\r\n{}", channel, config::HTTP_ENDPOINT, body.len(), config::BOT_TOKEN, body);

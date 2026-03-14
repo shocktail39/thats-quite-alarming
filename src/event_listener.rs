@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -60,6 +61,32 @@ fn start_ws_stream() -> WebSocket<MaybeTlsStream<TcpStream>> {
     stream
 }
 
+fn handle_message(message: HashMap<String, Value>, alarm_heap: &Arc<Mutex<AlarmHeap>>) {
+    let Some(Value::Array(mentions)) = message.get("mentions") else {
+        return;
+    };
+    if !mentions.contains(&Value::String(config::BOT_ID.to_string())) {
+        return;
+    }
+
+    if let Some(alarm) = Alarm::from_message(&message) {
+        const GREEN_CHECK_BOX: &str = "%E2%9C%85";
+        stoat_api::react(&alarm.channel_id, &alarm.message_id, GREEN_CHECK_BOX);
+        alarm_heap.lock().unwrap().push(alarm);
+        return;
+    }
+
+    let Some(Value::String(content)) = message.get("content") else {
+        return;
+    };
+    if content.to_lowercase().contains("license") {
+        if let Some(Value::String(channel_id)) = message.get("channel") {
+            const AGPL3_MESSAGE: &str = "that's quite alarming is licensed under the gnu affero general public license version 3.  source code can be found at <https://github.com/shocktail39/thats-quite-alarming/>";
+            stoat_api::post_message(&channel_id, AGPL3_MESSAGE);
+        }
+    }
+}
+
 fn listen(mut stream: WebSocket<MaybeTlsStream<TcpStream>>, alarm_heap: Arc<Mutex<AlarmHeap>>) {
     loop {
         let Ok(response) = stream.read() else {
@@ -81,16 +108,7 @@ fn listen(mut stream: WebSocket<MaybeTlsStream<TcpStream>>, alarm_heap: Arc<Mute
         };
         match msg_type.as_str() {
             "Message" => {
-                if
-                    let Some(Value::Array(mentions)) = response.get("mentions")
-                    && mentions.contains(&Value::String(config::BOT_ID.to_string()))
-                {
-                    if let Some(alarm) = Alarm::from_message(response) {
-                        const GREEN_CHECK_BOX: &str = "%E2%9C%85";
-                        stoat_api::react(&alarm.channel_id, &alarm.message_id, GREEN_CHECK_BOX);
-                        alarm_heap.lock().unwrap().push(alarm);
-                    }
-                }
+                handle_message(response, &alarm_heap);
             },
             _ => {}
         }
