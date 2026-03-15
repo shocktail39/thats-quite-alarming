@@ -1,6 +1,11 @@
 pub const BOT_ID: &str = "put your bot's user id here";
 pub const BOT_TOKEN: &str = "put your bot's secret token here";
 
+// this is where the bot will save alarms,
+// so that it can remember what alarms were set
+// if it goes offline.
+pub const WHERE_TO_SAVE: &str = "./alarms/";
+
 // if you're self-hosting your own stoat server,
 // then change the following to match your stoat server.
 pub const EVENT_SOCKET: (&str, u16) = ("events.stoat.chat", 443);

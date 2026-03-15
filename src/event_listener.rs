@@ -13,6 +13,7 @@ use tungstenite::protocol::WebSocket;
 use crate::alarm::Alarm;
 use crate::alarm_heap::AlarmHeap;
 use crate::config;
+use crate::file;
 use crate::json;
 use crate::json::Value;
 use crate::stoat_api;
@@ -69,6 +70,7 @@ fn handle_message(message: &HashMap<String, Value>, alarm_heap: &Arc<Mutex<Alarm
     }
 
     if let Some(alarm) = Alarm::from_message(message) {
+        file::save(&alarm);
         const GREEN_CHECK_BOX: &str = "%E2%9C%85";
         stoat_api::react(&alarm.channel_id, &alarm.message_id, GREEN_CHECK_BOX);
         alarm_heap.lock().unwrap().push(alarm);

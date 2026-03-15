@@ -66,7 +66,7 @@ pub fn post_message(channel_id: &str, content: &str) {
     send(request.as_bytes());
 }
 
-pub fn post_alarm(alarm: Alarm) {
+pub fn post_alarm(alarm: &Alarm) {
     let message = sanitize(&alarm.what);
     let channel = sanitize(&alarm.channel_id);
     let reply_to = sanitize(&alarm.message_id);
