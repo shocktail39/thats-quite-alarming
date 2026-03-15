@@ -9,17 +9,17 @@ pub enum IntOrFloat {
 }
 
 impl IntOrFloat {
-    pub const fn into_int(self) -> i64 {
+    pub const fn as_int(&self) -> i64 {
         match self {
-            Self::Int(i) => i,
-            Self::Float(f) => f as i64
+            Self::Int(i) => *i,
+            Self::Float(f) => *f as i64
         }
     }
 
-    pub const fn into_float(self) -> f64 {
+    pub const fn as_float(&self) -> f64 {
         match self {
-            Self::Float(f) => f,
-            Self::Int(i) => i as f64
+            Self::Float(f) => *f,
+            Self::Int(i) => *i as f64
         }
     }
 }

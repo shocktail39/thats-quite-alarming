@@ -1,32 +1,52 @@
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
-use std::sync::Mutex;
+use std::time::Duration;
 
 use native_tls::TlsConnector;
 
 use crate::alarm::Alarm;
 use crate::config;
-
-static RATE_LIMITER: Mutex<()> = Mutex::new(());
+use crate::json;
+use crate::json::Value;
 
 fn sanitize(input: &str) -> String {
     input.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 
 fn send(request: &[u8]) {
-    let lock = RATE_LIMITER.lock();
-    let connector = TlsConnector::new().unwrap();
-    let stream = TcpStream::connect(config::HTTP_SOCKET).unwrap();
-    let mut stream = connector.connect(config::HTTP_ENDPOINT, stream).unwrap();
+    loop {
+        let connector = TlsConnector::new().unwrap();
+        let stream = TcpStream::connect(config::HTTP_SOCKET).unwrap();
+        let mut stream = connector.connect(config::HTTP_ENDPOINT, stream).unwrap();
 
-    stream.write_all(request).unwrap();
-    stream.flush().unwrap();
-    let mut buffer = vec![];
-    stream.read_to_end(&mut buffer).unwrap();
-    println!("{:?}", String::from_utf8(buffer).unwrap());
-    std::thread::sleep(config::TIME_BETWEEN_REQUESTS);
-    std::mem::drop(lock);
+        stream.write_all(request).unwrap();
+        stream.flush().unwrap();
+        let mut response = vec![];
+        stream.read_to_end(&mut response).unwrap();
+        let response = String::from_utf8(response).unwrap();
+        println!("{response}");
+
+        if response.split_once("\r\n").is_some_and(|(first_line, _everything_after)|
+            first_line.contains("429 Too Many Requests")
+        ) {
+            let time_to_sleep = if
+                let Some((_headers, body)) = response.split_once("\r\n\r\n")
+                && let Ok((Value::Object(response_json), _)) = json::parse_value(body.as_bytes(), 0)
+                && let Some(Value::Number(milliseconds)) = response_json.get("retry_after")
+                && let Ok(millis_as_u64) = TryInto::<u64>::try_into(milliseconds.as_int())
+            {
+                Duration::from_millis(millis_as_u64)
+            } else {
+                // if the endpoint fails to send the amount of time to wait,
+                // we at least know it'll never be higher than 10 secs.
+                Duration::from_secs(10)
+            };
+            std::thread::sleep(time_to_sleep);
+            continue;
+        }
+        return;
+    }
 }
 
 pub fn post_message(channel_id: &str, content: &str) {
