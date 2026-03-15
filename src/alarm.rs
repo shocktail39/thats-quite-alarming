@@ -113,6 +113,8 @@ impl Eq for Alarm {}
 
 impl Ord for Alarm {
     fn cmp(&self, other: &Self) -> Ordering {
-        NaiveDateTime::cmp(&self.when, &other.when)
+        // they're swapped because sooner alarms
+        // should be higher priority than later ones.
+        NaiveDateTime::cmp(&other.when, &self.when)
     }
 }
