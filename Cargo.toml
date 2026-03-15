@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.43"
+chrono = "0.4.44"
 native-tls = "0.2.18"
 tungstenite = { version = "0.28.0", features = ["native-tls"] }
 
