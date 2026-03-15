@@ -16,17 +16,24 @@ fn sanitize(input: &str) -> String {
 
 fn send(request: &[u8]) {
     loop {
-        let connector = TlsConnector::new().unwrap();
-        let stream = TcpStream::connect(config::HTTP_SOCKET).unwrap();
-        let mut stream = connector.connect(config::HTTP_ENDPOINT, stream).unwrap();
+        let mut stream = {
+            let connector = TlsConnector::new().unwrap();
+            let tcp_stream = TcpStream::connect(config::HTTP_SOCKET).unwrap();
+            let tls_stream = connector.connect(config::HTTP_ENDPOINT, tcp_stream).unwrap();
+            tls_stream
+        };
 
         stream.write_all(request).unwrap();
         stream.flush().unwrap();
+
         let mut response = vec![];
         stream.read_to_end(&mut response).unwrap();
+        std::mem::drop(stream);
+
         let response = String::from_utf8(response).unwrap();
         println!("{response}");
 
+        // wait and retry if the rate limit has been hit.
         if response.split_once("\r\n").is_some_and(|(first_line, _everything_after)|
             first_line.contains("429 Too Many Requests")
         ) {

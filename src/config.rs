@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 pub const BOT_ID: &str = "put your bot's user id here";
 pub const BOT_TOKEN: &str = "put your bot's secret token here";
 
