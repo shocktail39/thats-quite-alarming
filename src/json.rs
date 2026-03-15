@@ -344,6 +344,7 @@ fn parse_string(string: &[u8], start_index: usize) -> ParseResult {
                         current_index += 1;
                         utf8 as u32
                     },
+                    #[allow(clippy::unusual_byte_groupings)]
                     0b110_00000..=0b110_11111 => {
                         if !is_inbounds(string, current_index + 1) {
                             return Err(Error::Syntax);
@@ -375,6 +376,7 @@ fn parse_string(string: &[u8], start_index: usize) -> ParseResult {
                         let third = (third & 0b00111111) as u32;
                         first | second | third
                     },
+                    #[allow(clippy::unusual_byte_groupings)]
                     0b11110_000..=0b11110_111 => {
                         if !is_inbounds(string, current_index + 3) {
                             return Err(Error::Syntax);

@@ -33,7 +33,8 @@ fn authenticate(stream: &mut WebSocket<MaybeTlsStream<TcpStream>>) {
     }
 }
 
-fn wait_for_ready(response: Message) {
+fn wait_for_ready(stream: &mut WebSocket<MaybeTlsStream<TcpStream>>) {
+    let response = stream.read().expect("failed to read ready response from event websocket");
     let Ok((Value::Object(mut response), _)) = json::parse_value(&response.into_data(), 0) else {
         panic!("ready response from event websocket is invalid");
     };
@@ -54,14 +55,12 @@ fn start_ws_stream() -> WebSocket<MaybeTlsStream<TcpStream>> {
     };
 
     authenticate(&mut stream);
-
-    let ws_response = stream.read().expect("failed to read ready response from event websocket");
-    wait_for_ready(ws_response);
+    wait_for_ready(&mut stream);
 
     stream
 }
 
-fn handle_message(message: HashMap<String, Value>, alarm_heap: &Arc<Mutex<AlarmHeap>>) {
+fn handle_message(message: &HashMap<String, Value>, alarm_heap: &Arc<Mutex<AlarmHeap>>) {
     let Some(Value::Array(mentions)) = message.get("mentions") else {
         return;
     };
@@ -69,7 +68,7 @@ fn handle_message(message: HashMap<String, Value>, alarm_heap: &Arc<Mutex<AlarmH
         return;
     }
 
-    if let Some(alarm) = Alarm::from_message(&message) {
+    if let Some(alarm) = Alarm::from_message(message) {
         const GREEN_CHECK_BOX: &str = "%E2%9C%85";
         stoat_api::react(&alarm.channel_id, &alarm.message_id, GREEN_CHECK_BOX);
         alarm_heap.lock().unwrap().push(alarm);
@@ -79,11 +78,12 @@ fn handle_message(message: HashMap<String, Value>, alarm_heap: &Arc<Mutex<AlarmH
     let Some(Value::String(content)) = message.get("content") else {
         return;
     };
-    if content.to_lowercase().contains("license") {
-        if let Some(Value::String(channel_id)) = message.get("channel") {
-            const AGPL3_MESSAGE: &str = "that's quite alarming is licensed under the gnu affero general public license version 3.  source code can be found at <https://github.com/shocktail39/thats-quite-alarming/>";
-            stoat_api::post_message(&channel_id, AGPL3_MESSAGE);
-        }
+    if
+        content.to_lowercase().contains("license")
+        && let Some(Value::String(channel_id)) = message.get("channel")
+    {
+        const AGPL3_MESSAGE: &str = "that's quite alarming is licensed under the gnu affero general public license version 3.  source code can be found at <https://github.com/shocktail39/thats-quite-alarming/>";
+        stoat_api::post_message(channel_id, AGPL3_MESSAGE);
     }
 }
 
@@ -108,7 +108,7 @@ fn listen(mut stream: WebSocket<MaybeTlsStream<TcpStream>>, alarm_heap: Arc<Mute
         };
         match msg_type.as_str() {
             "Message" => {
-                handle_message(response, &alarm_heap);
+                handle_message(&response, &alarm_heap);
             },
             _ => {}
         }
