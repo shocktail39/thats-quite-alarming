@@ -92,9 +92,7 @@ fn handle_message(message: &HashMap<String, Value>, alarm_heap: &Arc<Mutex<Alarm
         if let Err(what_happened) = stoat_api::react(&alarm.channel_id, &alarm.message_id, GREEN_CHECK_BOX) {
             println!("event listener: {}\nfailed to react {:?}", what_happened, &alarm);
         }
-        let Ok(mut heap_lock) = alarm_heap.lock() else {
-            return Err("alarm heap mutex has been poisoned.  ending event listener.".to_string());
-        };
+        let mut heap_lock = alarm_heap.lock().expect("alarm heap mutex has been poisoned.  ending event listener.");
         heap_lock.push(alarm);
         return Ok(());
     }
@@ -114,7 +112,33 @@ fn handle_message(message: &HashMap<String, Value>, alarm_heap: &Arc<Mutex<Alarm
     Ok(())
 }
 
-fn listen(mut stream: WebSocket<MaybeTlsStream<TcpStream>>, alarm_heap: Arc<Mutex<AlarmHeap>>) -> Result<(), String> {
+fn handle_event(event: &HashMap<String, Value>, alarm_heap: &Arc<Mutex<AlarmHeap>>) -> Result<(), String> {
+    let Some(Value::String(msg_type)) = event.get("type") else {
+        return Err("warning: no message type".to_string());
+    };
+    match msg_type.as_str() {
+        "Message" => {
+            handle_message(&event, &alarm_heap)?;
+        },
+        "Bulk" => {
+            let Some(Value::Array(bulk_events)) = event.get("v") else {
+                return Err("warning: malformed bulk event".to_string());
+            };
+            for bulk_event in bulk_events {
+                let Value::Object(bulk_event) = bulk_event else {
+                    continue;
+                };
+                if let Err(what_happened) = handle_event(bulk_event, &alarm_heap) {
+                    println!("warning: error in bulk event {}", what_happened);
+                }
+            }
+        },
+        _ => {}
+    }
+    Ok(())
+}
+
+fn listen(mut stream: WebSocket<MaybeTlsStream<TcpStream>>, alarm_heap: Arc<Mutex<AlarmHeap>>) {
     loop {
         let Ok(response) = stream.read() else {
             println!("warning: unexpected response from event endpoint");
@@ -122,21 +146,14 @@ fn listen(mut stream: WebSocket<MaybeTlsStream<TcpStream>>, alarm_heap: Arc<Mute
         };
         if let Message::Close(_) = response {
             println!("stream closed by event endpoint");
-            return Ok(());
+            return;
         }
         let Ok((Value::Object(response), _)) = json::parse_value(&response.into_data(), 0) else {
             println!("warning: event endpoint response is unexpectedly not a json object.");
             continue;
         };
-        let Some(Value::String(msg_type)) = response.get("type") else {
-            println!("warning: no message type");
-            continue;
-        };
-        match msg_type.as_str() {
-            "Message" => {
-                handle_message(&response, &alarm_heap)?;
-            },
-            _ => {}
+        if let Err(what_happened) = handle_event(&response, &alarm_heap) {
+            println!("event listener: {}", what_happened);
         }
     }
 }
@@ -144,7 +161,7 @@ fn listen(mut stream: WebSocket<MaybeTlsStream<TcpStream>>, alarm_heap: Arc<Mute
 pub fn start_listening(alarm_heap: Arc<Mutex<AlarmHeap>>) -> JoinHandle<Result<(), String>> {
     thread::spawn(|| {
         let ws = start_ws_stream()?;
-        listen(ws, alarm_heap)?;
+        listen(ws, alarm_heap);
         Ok(())
     })
 }
