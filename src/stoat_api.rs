@@ -1,17 +1,21 @@
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
+use std::sync::Mutex;
 
 use native_tls::TlsConnector;
 
 use crate::alarm::Alarm;
 use crate::config;
 
+static RATE_LIMITER: Mutex<()> = Mutex::new(());
+
 fn sanitize(input: &str) -> String {
     input.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 
 fn send(request: &[u8]) {
+    let lock = RATE_LIMITER.lock();
     let connector = TlsConnector::new().unwrap();
     let stream = TcpStream::connect(config::HTTP_SOCKET).unwrap();
     let mut stream = connector.connect(config::HTTP_ENDPOINT, stream).unwrap();
@@ -21,6 +25,8 @@ fn send(request: &[u8]) {
     let mut buffer = vec![];
     stream.read_to_end(&mut buffer).unwrap();
     println!("{:?}", String::from_utf8(buffer).unwrap());
+    std::thread::sleep(config::TIME_BETWEEN_REQUESTS);
+    std::mem::drop(lock);
 }
 
 pub fn post_message(channel_id: &str, content: &str) {
